@@ -28,4 +28,6 @@ jobs:
 
       # 4. Run tests
       - name: Run tests
+        env:
+          PYTHONPATH: ./app
         run: pytest
