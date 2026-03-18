@@ -2,9 +2,7 @@ name: Run Tests
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches: [calendar]
 
 jobs:
   test:
@@ -30,4 +28,6 @@ jobs:
 
       # 4. Run tests
       - name: Run tests
+        env:
+          PYTHONPATH: .
         run: pytest
