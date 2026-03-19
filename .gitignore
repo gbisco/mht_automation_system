@@ -9,6 +9,9 @@ venv/
 # Ignore all data
 data/
 
+# Ignore loggers
+logger/logs/
+
 # OS
 .DS_Store
 Thumbs.db
