@@ -14,7 +14,7 @@ EMAIL_CLIENT_SECRET = os.getenv("EMAIL_CLIENT_SECRET", "")
 
 EMAIL_SENDER = os.getenv(
     "EMAIL_SENDER",
-    "automation@novaflowdigi.com",  # fallback
+    "gabrielbisco@novaflowdigi.com",  # fallback
 )
 
 EMAIL_GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
