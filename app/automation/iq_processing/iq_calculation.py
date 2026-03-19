@@ -1,15 +1,15 @@
 from __future__ import annotations
-import io
+
 from dataclasses import dataclass
-from typing import Any
 import pandas as pd
+
 from app.logger.logger import AppLogger
 
 
 class IQCalculation:
     """
     Service responsible for:
-    - Receiving raw derivatives CSV bytes
+    - Receiving derivatives input as a DataFrame
     - Validating IQ calculation input
     - Computing Manhattan IQ tables
     - Returning IQ result tables for downstream processing
@@ -17,7 +17,7 @@ class IQCalculation:
     Internal:
     - logger (AppLogger): logger instance for IQ calculation operations
     """
-    # Required columns for validation
+
     REQUIRED_COLUMNS = [
         "RptDt",
         "Asst",
@@ -38,32 +38,29 @@ class IQCalculation:
         """
         Initialize the IQ calculation service.
         """
-        # Initialize logger
         self.logger = AppLogger("automation.iq_calculation")
 
     # =========================
     # Internal helper methods
     # =========================
 
-    def _validate_csv_bytes(self, csv_bytes: bytes) -> None:
+    def _validate_dataframe(self, df: pd.DataFrame) -> None:
         """
-        Validate raw CSV byte payload before calculation.
+        Validate DataFrame input before calculation.
 
         Args:
-            csv_bytes (bytes): Raw CSV content
+            df (pd.DataFrame): Input DataFrame
 
         Returns:
             None
         """
         # Validate type
-        if not isinstance(csv_bytes, bytes):
-            raise ValueError("csv_bytes must be raw bytes.")
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError("Input must be a pandas DataFrame.")
 
         # Validate not empty
-        if len(csv_bytes) == 0:
-            raise ValueError(
-                "Empty CSV payload. Expected derivatives open position CSV bytes."
-        )
+        if df.empty:
+            raise ValueError("Input DataFrame is empty.")
 
     def _normalize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
