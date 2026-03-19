@@ -1,7 +1,5 @@
 from unittest.mock import Mock
-
 import pytest
-
 from app.automation.iq_processing.b3_fetcher import B3Fetcher
 
 

@@ -1,0 +1,6 @@
+2026-03-19 12:32:21,033 | INFO | automation.b3_fetcher | Starting B3 fetch | file_name=DerivativesOpenPositionFile | date=2026-03-17
+2026-03-19 12:32:21,033 | INFO | automation.b3_fetcher | Requesting B3 token | file_name=DerivativesOpenPositionFile | date=2026-03-17
+2026-03-19 12:32:24,675 | INFO | automation.b3_fetcher | B3 token received | file_name=DerivativesOpenPositionFile | date=2026-03-17
+2026-03-19 12:32:24,675 | INFO | automation.b3_fetcher | Downloading B3 file content
+2026-03-19 12:32:25,012 | INFO | automation.b3_fetcher | B3 file content downloaded successfully
+2026-03-19 12:32:25,013 | INFO | automation.b3_fetcher | B3 fetch completed | file_name=DerivativesOpenPositionFile | date=2026-03-17 | size_bytes=3519302
