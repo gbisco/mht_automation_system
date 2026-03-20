@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 import pytest
 
-from app.storage.sharepoint import SharePointStorage
+from app.storage.sharepoint_storage import SharePointStorage
 
 
 # =========================
