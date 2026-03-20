@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 import pytest
 
-from app.storage.sharepoint_storage import SharePointStorage
+from self.logger.app.storage.sharepoint_storage_storage import SharePointStorage
 
 
 # =========================
@@ -72,7 +72,7 @@ def test_get_access_token_success(storage: SharePointStorage, monkeypatch):
     mock_response.raise_for_status.return_value = None
 
     monkeypatch.setattr(
-        "app.storage.sharepoint.requests.post",
+        "self.logger.app.storage.sharepoint_storage.requests.post",
         Mock(return_value=mock_response),
     )
 
@@ -84,7 +84,7 @@ def test_get_access_token_success(storage: SharePointStorage, monkeypatch):
 def test_get_access_token_failure(storage: SharePointStorage, monkeypatch):
     mock_post = Mock(side_effect=Exception("fail"))
 
-    monkeypatch.setattr("app.storage.sharepoint.requests.post", mock_post)
+    monkeypatch.setattr("self.logger.app.storage.sharepoint_storage.requests.post", mock_post)
 
     with pytest.raises(RuntimeError):
         storage._get_access_token()
@@ -106,7 +106,7 @@ def test_upload_file_bytes_success(storage: SharePointStorage, monkeypatch):
     mock_response.raise_for_status.return_value = None
 
     monkeypatch.setattr(
-        "app.storage.sharepoint.requests.put",
+        "self.logger.app.storage.sharepoint_storage.requests.put",
         Mock(return_value=mock_response),
     )
 
@@ -146,7 +146,7 @@ def test_download_file_bytes_success(storage: SharePointStorage, monkeypatch):
     mock_response.raise_for_status.return_value = None
 
     monkeypatch.setattr(
-        "app.storage.sharepoint.requests.get",
+        "self.logger.app.storage.sharepoint_storage.requests.get",
         Mock(return_value=mock_response),
     )
 
@@ -162,7 +162,7 @@ def test_download_file_bytes_not_found(storage: SharePointStorage, monkeypatch):
     mock_response.status_code = 404
 
     monkeypatch.setattr(
-        "app.storage.sharepoint.requests.get",
+        "self.logger.app.storage.sharepoint_storage.requests.get",
         Mock(return_value=mock_response),
     )
 
@@ -186,7 +186,7 @@ def test_file_exists_true(storage: SharePointStorage, monkeypatch):
     mock_response.status_code = 200
 
     monkeypatch.setattr(
-        "app.storage.sharepoint.requests.get",
+        "self.logger.app.storage.sharepoint_storage.requests.get",
         Mock(return_value=mock_response),
     )
 
@@ -200,7 +200,7 @@ def test_file_exists_false(storage: SharePointStorage, monkeypatch):
     mock_response.status_code = 404
 
     monkeypatch.setattr(
-        "app.storage.sharepoint.requests.get",
+        "self.logger.app.storage.sharepoint_storage.requests.get",
         Mock(return_value=mock_response),
     )
 
