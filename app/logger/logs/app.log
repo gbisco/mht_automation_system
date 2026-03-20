@@ -21,3 +21,8 @@
 2026-03-19 18:51:43,822 | INFO | interface.email_sender | Successfully acquired Microsoft Graph access token.
 2026-03-19 18:51:45,401 | INFO | interface.email_sender | Successfully sent email from gabrielbisco@novaflowdigi.com.
 2026-03-19 18:51:45,402 | INFO | interface.email_sender | Draft email sent successfully to ['gbisconovo@gmail.com'].
+2026-03-20 14:33:51,933 | INFO | storage.sharepoint | Successfully acquired Microsoft Graph access token for SharePoint.
+2026-03-20 14:33:54,543 | INFO | storage.sharepoint | Successfully uploaded file to SharePoint: test/b3_derivatives_2026_03_18.csv
+2026-03-20 14:33:57,015 | INFO | storage.sharepoint | Successfully acquired Microsoft Graph access token for SharePoint.
+2026-03-20 14:33:58,388 | INFO | storage.sharepoint | Successfully acquired Microsoft Graph access token for SharePoint.
+2026-03-20 14:33:59,925 | INFO | storage.sharepoint | Successfully downloaded file from SharePoint: test/b3_derivatives_2026_03_18.csv
