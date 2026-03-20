@@ -39,3 +39,8 @@ SHAREPOINT_SITE_ID = os.getenv("SHAREPOINT_SITE_ID", "")
 SHAREPOINT_DRIVE_ID = os.getenv("SHAREPOINT_DRIVE_ID", "")
 
 SHAREPOINT_GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
+
+MARKET_CALENDAR_PATH = os.getenv(
+    "MARKET_CALENDAR_PATH",
+    "data/calendars/b3_market_calendar.csv",
+)
