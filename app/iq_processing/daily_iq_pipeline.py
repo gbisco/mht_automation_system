@@ -6,8 +6,8 @@ from typing import Any
 import pandas as pd
 
 from app.logger.logger import AppLogger
-from app.automation.iq_processing.b3_fetcher import B3Fetcher
-from app.automation.iq_processing.iq_calculation import IQCalculation
+from app.iq_processing.b3_fetcher import B3Fetcher
+from app.iq_processing.iq_calculation import IQCalculation
 
 
 class DailyIQPipeline:

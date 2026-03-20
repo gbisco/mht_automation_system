@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 import pytest
-from app.automation.iq_processing.b3_fetcher import B3Fetcher
+from app.iq_processing.b3_fetcher import B3Fetcher
 
 
 @pytest.fixture

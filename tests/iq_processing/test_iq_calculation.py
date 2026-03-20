@@ -2,7 +2,7 @@ from pathlib import Path
 import pandas as pd
 import pandas.testing as pdt
 import pytest
-from app.automation.iq_processing.iq_calculation import IQCalculation
+from app.iq_processing.iq_calculation import IQCalculation
 
 
 @pytest.fixture
