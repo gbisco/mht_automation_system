@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from app import config
 from app.storage.sharepoint_storage import SharePointStorage
 
 
@@ -26,7 +27,9 @@ def main() -> None:
     file_bytes = fixture_path.read_bytes()
 
     # Define test file path inside SharePoint document library
-    sharepoint_file_path = "test/b3_derivatives_2026_03_18.csv"
+    sharepoint_file_path = (
+        f"{config.SHAREPOINT_B3_RAW_FOLDER}/b3_derivatives_2026_03_18.csv"
+    )
 
     print(f"Uploading file to SharePoint: {sharepoint_file_path}")
     upload_result = storage.upload_file_bytes(

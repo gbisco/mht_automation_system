@@ -99,8 +99,12 @@ class DailyIQPipeline:
         # Step 4: Convert to CSV
         csv_content = iq_coef_df.to_csv(index=False)
 
-        # Step 5: Build file name
+        # Step 5: Build IQ output file name
         file_name = self._build_output_filename(target_date)
+
+        # Step 6: Get raw B3 metadata
+        raw_b3_content = fetch_result["content"]
+        raw_b3_file_name = fetch_result.get("download_name", f"{self.DEFAULT_FILE_NAME}_{target_date}.csv")
 
         self.logger.write(
             f"Daily IQ pipeline completed | date={target_date} | rows={len(iq_coef_df)}"
@@ -110,4 +114,6 @@ class DailyIQPipeline:
             "csv_content": csv_content,
             "file_name": file_name,
             "request_date": target_date,
+            "raw_b3_content": raw_b3_content,
+            "raw_b3_file_name": raw_b3_file_name,
         }

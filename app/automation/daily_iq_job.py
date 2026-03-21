@@ -96,10 +96,31 @@ class DailyIQJob:
             processing_date = self._resolve_processing_date(calendar_service)
             pipeline_result = self._execute_pipeline(processing_date)
 
-            storage_result = self._store_output(
+            # =========================
+            # Store IQ output
+            # =========================
+            iq_storage_result = self._store_output(
                 storage_method=storage_method,
-                pipeline_result=pipeline_result,
+                file_name=pipeline_result["file_name"],
+                file_content=pipeline_result["csv_content"],
+                folder=config.SHAREPOINT_IQ_OUTPUT_FOLDER,
             )
+
+            # =========================
+            # Store raw B3 file
+            # =========================
+            raw_b3_storage_result = self._store_output(
+                storage_method=storage_method,
+                file_name=pipeline_result["raw_b3_file_name"],
+                file_content=pipeline_result["raw_b3_content"],
+                folder=config.SHAREPOINT_B3_RAW_FOLDER,
+            )
+
+            # Combine results
+            storage_result = {
+                "iq_file": iq_storage_result,
+                "raw_b3_file": raw_b3_storage_result,
+            }
 
             notification_sent = False
             notification_result = None
@@ -373,9 +394,16 @@ class DailyIQJob:
         if "file_name" not in pipeline_result:
             raise ValueError("Pipeline result missing 'file_name'")
 
+        if "raw_b3_content" not in pipeline_result:
+            raise ValueError("Pipeline result missing 'raw_b3_content'")
+
+        if "raw_b3_file_name" not in pipeline_result:
+            raise ValueError("Pipeline result missing 'raw_b3_file_name'")
+
         logger.write(
             f"IQ pipeline executed successfully | processing_date={processing_date} | "
-            f"file_name={pipeline_result.get('file_name')}"
+            f"file_name={pipeline_result.get('file_name')} | "
+            f"raw_b3_file_name={pipeline_result.get('raw_b3_file_name')}"
         )
 
         return pipeline_result
@@ -383,39 +411,41 @@ class DailyIQJob:
     def _store_output(
         self,
         storage_method: str,
-        pipeline_result: dict[str, Any],
+        file_name: str,
+        file_content: Any,
+        folder: str,
     ) -> dict[str, Any]:
         """
-        Store generated output using requested backend.
+        Store a single generated file using requested backend.
 
         Args:
             storage_method (str): Storage backend to use
-            pipeline_result (dict[str, Any]): Output returned by pipeline
+            file_name (str): Name of file to store
+            file_content (Any): File content as str or bytes
+            folder (str): SharePoint folder path
 
         Returns:
             dict[str, Any]: Storage result
         """
-        file_name = pipeline_result.get("file_name")
-        csv_content = pipeline_result.get("csv_content")
-
         logger.write(
-            f"Storing pipeline output | storage_method={storage_method} | file_name={file_name}"
+            f"Storing file output | storage_method={storage_method} | "
+            f"folder={folder} | file_name={file_name}"
         )
 
         try:
             if storage_method == "sharepoint":
                 storage = SharePointStorage()
 
-                # Keep path simple and consistent
-                file_path = f"test/{file_name}"
+                # Build SharePoint path
+                file_path = f"{folder}/{file_name}"
 
                 # Normalize content to bytes for SharePoint upload
-                if isinstance(csv_content, str):
-                    file_bytes = csv_content.encode("utf-8")
-                elif isinstance(csv_content, bytes):
-                    file_bytes = csv_content
+                if isinstance(file_content, str):
+                    file_bytes = file_content.encode("utf-8")
+                elif isinstance(file_content, bytes):
+                    file_bytes = file_content
                 else:
-                    raise ValueError("Pipeline csv_content must be str or bytes")
+                    raise ValueError("file_content must be str or bytes")
 
                 storage_result = storage.upload_file_bytes(
                     file_path=file_path,
@@ -429,13 +459,13 @@ class DailyIQJob:
         except Exception as e:
             logger.exception(
                 f"Failed to store output | storage_method={storage_method} | "
-                f"file_name={file_name} | error={e}"
+                f"folder={folder} | file_name={file_name} | error={e}"
             )
             raise
 
         logger.write(
             f"Output stored successfully | storage_method={storage_method} | "
-            f"file_name={file_name}"
+            f"folder={folder} | file_name={file_name}"
         )
 
         return storage_result
@@ -592,8 +622,7 @@ class DailyIQJob:
             str
         """
         file_name = pipeline_result.get("file_name")
-        web_url = storage_result.get("web_url")
-
+        web_url = storage_result.get("iq_file", {}).get("web_url")
         body = f"""
         <html>
             <body>

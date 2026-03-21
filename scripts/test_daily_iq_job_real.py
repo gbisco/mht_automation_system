@@ -1,5 +1,6 @@
 from pprint import pprint
 
+from app import config
 from app.automation.daily_iq_job import DailyIQJob
 from app.logger.logger import AppLogger
 
@@ -34,10 +35,30 @@ def run_live_test_with_notification(target_date: str) -> tuple[dict, dict]:
     # Hit B3 only once
     pipeline_result = job._execute_pipeline(processing_date)
 
-    storage_result = job._store_output(
+    # =========================
+    # Store IQ output
+    # =========================
+    iq_storage_result = job._store_output(
         storage_method="sharepoint",
-        pipeline_result=pipeline_result,
+        file_name=pipeline_result["file_name"],
+        file_content=pipeline_result["csv_content"],
+        folder=config.SHAREPOINT_IQ_OUTPUT_FOLDER,
     )
+
+    # =========================
+    # Store raw B3 file
+    # =========================
+    raw_b3_storage_result = job._store_output(
+        storage_method="sharepoint",
+        file_name=pipeline_result["raw_b3_file_name"],
+        file_content=pipeline_result["raw_b3_content"],
+        folder=config.SHAREPOINT_B3_RAW_FOLDER,
+    )
+
+    storage_result = {
+        "iq_file": iq_storage_result,
+        "raw_b3_file": raw_b3_storage_result,
+    }
 
     recipients = job._resolve_recipients(None)
 
@@ -99,10 +120,30 @@ def run_cached_test_without_notification(
 
     processing_date = job._resolve_processing_date(calendar_service)
 
-    storage_result = job._store_output(
+    # =========================
+    # Store IQ output
+    # =========================
+    iq_storage_result = job._store_output(
         storage_method="sharepoint",
-        pipeline_result=pipeline_result,
+        file_name=pipeline_result["file_name"],
+        file_content=pipeline_result["csv_content"],
+        folder=config.SHAREPOINT_IQ_OUTPUT_FOLDER,
     )
+
+    # =========================
+    # Store raw B3 file
+    # =========================
+    raw_b3_storage_result = job._store_output(
+        storage_method="sharepoint",
+        file_name=pipeline_result["raw_b3_file_name"],
+        file_content=pipeline_result["raw_b3_content"],
+        folder=config.SHAREPOINT_B3_RAW_FOLDER,
+    )
+
+    storage_result = {
+        "iq_file": iq_storage_result,
+        "raw_b3_file": raw_b3_storage_result,
+    }
 
     result = {
         "status": "success",

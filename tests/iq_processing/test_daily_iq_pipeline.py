@@ -1,113 +1,250 @@
-from __future__ import annotations
+import pytest
+from unittest.mock import MagicMock, patch
 
-import io
-from typing import Any
-
-import pandas as pd
-
-from app.logger.logger import AppLogger
-from app.iq_processing.b3_fetcher import B3Fetcher
-from app.iq_processing.iq_calculation import IQCalculation
+from app.automation.daily_iq_job import DailyIQJob
 
 
-class DailyIQPipeline:
+@pytest.fixture
+def job():
     """
-    Service responsible for:
-    - Fetching B3 derivatives data for a given date
-    - Converting raw CSV bytes into DataFrame
-    - Computing IQ coefficient table
-    - Returning file-ready CSV content
-
-    Internal:
-    - logger (AppLogger): logger instance for pipeline operations
-    - fetcher (B3Fetcher): service to fetch B3 data
-    - calculator (IQCalculation): service to compute IQ tables
+    Build a DailyIQJob instance with a mocked pipeline.
     """
+    job = DailyIQJob()
+    job.pipeline = MagicMock()
+    return job
 
-    DEFAULT_FILE_NAME = "DerivativesOpenPositionFile"
 
-    def __init__(self):
-        """
-        Initialize the daily IQ pipeline.
-        """
-        self.logger = AppLogger("automation.daily_iq_pipeline")
-        self.fetcher = B3Fetcher()
-        self.calculator = IQCalculation()
+def _build_mock_calendar_service():
+    """
+    Build a reusable mocked calendar service.
+    """
+    mock_calendar_service = MagicMock()
+    mock_calendar_service.is_trading_day.return_value = True
+    mock_calendar_service.get_target_date.return_value = "2026-03-20"
 
-    # =========================
-    # Internal helper methods
-    # =========================
+    mock_previous_day = MagicMock()
+    mock_previous_day.strftime.return_value = "2026-03-19"
+    mock_calendar_service.get_previous_trading_day.return_value = mock_previous_day
 
-    def _convert_csv_bytes_to_dataframe(self, content: bytes) -> pd.DataFrame:
-        """
-        Convert raw CSV bytes into a pandas DataFrame.
+    return mock_calendar_service
 
-        Args:
-            content (bytes): Raw CSV file content
 
-        Returns:
-            pd.DataFrame
-        """
-        return pd.read_csv(
-            io.BytesIO(content),
-            sep=";",
-            dtype=str,
-            keep_default_na=False,
-            encoding="utf-8-sig",
+def _build_mock_pipeline_result():
+    """
+    Build a reusable mocked pipeline result.
+    """
+    return {
+        "csv_content": b"col1,col2\n1,2\n",
+        "file_name": "iq_2026_03_19.csv",
+        "request_date": "2026-03-19",
+        "raw_b3_content": b"raw-b3-file-bytes",
+        "raw_b3_file_name": "DerivativesOpenPositionFile_20260319.csv",
+    }
+
+
+def test_execute_skips_when_target_date_is_not_trading_day(job):
+    """
+    Job should stop cleanly when target date is not a trading day.
+    """
+    mock_calendar_service = MagicMock()
+    mock_calendar_service.is_trading_day.return_value = False
+
+    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service):
+        result = job.execute(target_date="2026-03-20")
+
+    assert result["status"] == "skipped"
+    assert result["target_date"] == "2026-03-20"
+    assert result["processing_date"] is None
+    assert result["notification_sent"] is False
+
+    job.pipeline.run.assert_not_called()
+
+
+def test_execute_success_without_notification(job):
+    """
+    Job should complete successfully without sending notification.
+    """
+    mock_calendar_service = _build_mock_calendar_service()
+    job.pipeline.run.return_value = _build_mock_pipeline_result()
+
+    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
+         patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls:
+
+        mock_storage = mock_storage_cls.return_value
+        mock_storage.upload_file_bytes.side_effect = [
+            {
+                "status": "uploaded",
+                "file_path": "test/iq_coeff/iq_2026_03_19.csv",
+                "name": "iq_2026_03_19.csv",
+                "web_url": "https://sharepoint/iq-file",
+            },
+            {
+                "status": "uploaded",
+                "file_path": "test/b3_raw/DerivativesOpenPositionFile_20260319.csv",
+                "name": "DerivativesOpenPositionFile_20260319.csv",
+                "web_url": "https://sharepoint/raw-file",
+            },
+        ]
+
+        result = job.execute(
+            target_date="2026-03-20",
+            storage_method="sharepoint",
+            notify=False,
         )
 
-    def _build_output_filename(self, target_date: str) -> str:
-        """
-        Build output file name for IQ result.
+    assert result["status"] == "success"
+    assert result["target_date"] == "2026-03-20"
+    assert result["processing_date"] == "2026-03-19"
+    assert result["file_name"] == "iq_2026_03_19.csv"
+    assert result["notification_sent"] is False
+    assert result["notification_method"] is None
 
-        Args:
-            target_date (str): Date in YYYY-MM-DD format
+    job.pipeline.run.assert_called_once_with("2026-03-19")
+    assert mock_storage.upload_file_bytes.call_count == 2
 
-        Returns:
-            str
-        """
-        return f"iq_coef_{target_date.replace('-', '')}.csv"
 
-    # =========================
-    # Public methods
-    # =========================
+def test_execute_success_with_notification(job):
+    """
+    Job should complete successfully and send notification when requested.
+    """
+    mock_calendar_service = _build_mock_calendar_service()
+    job.pipeline.run.return_value = _build_mock_pipeline_result()
 
-    def run(self, target_date: str) -> dict[str, Any]:
-        """
-        Execute daily IQ pipeline for a given date.
+    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
+         patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls, \
+         patch("app.automation.daily_iq_job.EmailSender") as mock_email_cls:
 
-        Args:
-            target_date (str): Target date in YYYY-MM-DD format
+        mock_storage = mock_storage_cls.return_value
+        mock_storage.upload_file_bytes.side_effect = [
+            {
+                "status": "uploaded",
+                "file_path": "test/iq_coeff/iq_2026_03_19.csv",
+                "name": "iq_2026_03_19.csv",
+                "web_url": "https://sharepoint/iq-file",
+            },
+            {
+                "status": "uploaded",
+                "file_path": "test/b3_raw/DerivativesOpenPositionFile_20260319.csv",
+                "name": "DerivativesOpenPositionFile_20260319.csv",
+                "web_url": "https://sharepoint/raw-file",
+            },
+        ]
 
-        Returns:
-            dict[str, Any]: CSV content and metadata
-        """
-        self.logger.write(f"Starting daily IQ pipeline | date={target_date}")
-
-        # Step 1: Fetch B3 file
-        fetch_result = self.fetcher.fetch(
-            file_name=self.DEFAULT_FILE_NAME,
-            date_str=target_date,
-        )
-
-        # Step 2: Convert to DataFrame
-        df = self._convert_csv_bytes_to_dataframe(fetch_result["content"])
-
-        # Step 3: Calculate IQ
-        iq_coef_df = self.calculator.calculate_from_dataframe(df)
-
-        # Step 4: Convert to CSV
-        csv_content = iq_coef_df.to_csv(index=False)
-
-        # Step 5: Build file name
-        file_name = self._build_output_filename(target_date)
-
-        self.logger.write(
-            f"Daily IQ pipeline completed | date={target_date} | rows={len(iq_coef_df)}"
-        )
-
-        return {
-            "csv_content": csv_content,
-            "file_name": file_name,
-            "request_date": target_date,
+        mock_email = mock_email_cls.return_value
+        mock_email.send.return_value = {
+            "status": "sent",
+            "message": "Email sent successfully",
         }
+
+        result = job.execute(
+            target_date="2026-03-20",
+            storage_method="sharepoint",
+            notify=True,
+            notification_method="email",
+            recipients=["test@example.com"],
+        )
+
+    assert result["status"] == "success"
+    assert result["notification_sent"] is True
+    assert result["notification_method"] == "email"
+
+    assert mock_storage.upload_file_bytes.call_count == 2
+    mock_email.create_email.assert_called_once()
+    mock_email.add_attachment.assert_called_once()
+    mock_email.send.assert_called_once()
+
+
+def test_execute_returns_failed_when_pipeline_raises(job):
+    """
+    Job should return failed status when pipeline raises an exception.
+    """
+    mock_calendar_service = _build_mock_calendar_service()
+    job.pipeline.run.side_effect = RuntimeError("Pipeline exploded")
+
+    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service):
+        result = job.execute(target_date="2026-03-20")
+
+    assert result["status"] == "failed"
+    assert "Pipeline exploded" in result["error"]
+
+
+def test_execute_returns_failed_when_storage_raises(job):
+    """
+    Job should return failed status when storage upload raises an exception.
+    """
+    mock_calendar_service = _build_mock_calendar_service()
+    job.pipeline.run.return_value = _build_mock_pipeline_result()
+
+    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
+         patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls:
+
+        mock_storage = mock_storage_cls.return_value
+        mock_storage.upload_file_bytes.side_effect = RuntimeError("Storage failed")
+
+        result = job.execute(target_date="2026-03-20")
+
+    assert result["status"] == "failed"
+    assert "Storage failed" in result["error"]
+
+
+def test_execute_returns_failed_when_notification_raises(job):
+    """
+    Job should return failed status when notification sending raises an exception.
+    """
+    mock_calendar_service = _build_mock_calendar_service()
+    job.pipeline.run.return_value = _build_mock_pipeline_result()
+
+    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
+         patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls, \
+         patch("app.automation.daily_iq_job.EmailSender") as mock_email_cls:
+
+        mock_storage = mock_storage_cls.return_value
+        mock_storage.upload_file_bytes.side_effect = [
+            {
+                "status": "uploaded",
+                "file_path": "test/iq_coeff/iq_2026_03_19.csv",
+                "name": "iq_2026_03_19.csv",
+                "web_url": "https://sharepoint/iq-file",
+            },
+            {
+                "status": "uploaded",
+                "file_path": "test/b3_raw/DerivativesOpenPositionFile_20260319.csv",
+                "name": "DerivativesOpenPositionFile_20260319.csv",
+                "web_url": "https://sharepoint/raw-file",
+            },
+        ]
+
+        mock_email = mock_email_cls.return_value
+        mock_email.send.side_effect = RuntimeError("Email failed")
+
+        result = job.execute(
+            target_date="2026-03-20",
+            notify=True,
+            notification_method="email",
+            recipients=["test@example.com"],
+        )
+
+    assert result["status"] == "failed"
+    assert "Email failed" in result["error"]
+
+
+def test_resolve_recipients_uses_config_default(job):
+    """
+    _resolve_recipients should return config defaults when no override is passed.
+    """
+    with patch(
+        "app.automation.daily_iq_job.config.DEFAULT_REPORT_RECIPIENTS",
+        ["default@example.com"],
+    ):
+        recipients = job._resolve_recipients(None)
+
+    assert recipients == ["default@example.com"]
+
+
+def test_resolve_recipients_uses_passed_recipients(job):
+    """
+    _resolve_recipients should use passed recipients when provided.
+    """
+    recipients = job._resolve_recipients(["custom@example.com"])
+
+    assert recipients == ["custom@example.com"]
