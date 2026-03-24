@@ -345,7 +345,14 @@ class SharePointStorage:
             endpoint = f"/drives/{self.drive_id}/root:/{folder_path}:/children"
             url = f"{self.graph_base_url}{endpoint}"
 
-            response = requests.get(url, headers=self._get_headers())
+            access_token = self._get_access_token()
+
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+            }
+
+            response = requests.get(url, headers=headers)
             response.raise_for_status()
 
             items = response.json().get("value", [])
