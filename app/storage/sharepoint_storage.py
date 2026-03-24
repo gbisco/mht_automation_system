@@ -343,7 +343,7 @@ class SharePointStorage:
 
         try:
             endpoint = f"/drives/{self.drive_id}/root:/{folder_path}:/children"
-            url = f"{self.base_url}{endpoint}"
+            url = f"{self.graph_base_url}{endpoint}"
 
             response = requests.get(url, headers=self._get_headers())
             response.raise_for_status()
