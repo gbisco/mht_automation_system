@@ -40,7 +40,7 @@ jobs:
           SHAREPOINT_IQ_OUTPUT_FOLDER: test/iq_coeff
           SHAREPOINT_ERROR_LOGS_FOLDER: logs/errors
 
-          MARKET_CALENDAR_PATH: data/calendars/b3_automation_calendar_2026.csv
+          MARKET_CALENDAR_PATH: data/calendars/b3_holidays_2026.csv
 
         run: |
           python -m scripts.run_daily_iq_job
