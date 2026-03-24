@@ -25,6 +25,7 @@ DEFAULT_REPORT_RECIPIENTS = [
 
 ALERT_RECIPIENTS = [
     "gabrielbisco@novaflowdigi.com",
+    "ricardo.manara@mhtinvest.com.br"
 ]
 
 # =========================

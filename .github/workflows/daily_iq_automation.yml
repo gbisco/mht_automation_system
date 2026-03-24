@@ -43,4 +43,4 @@ jobs:
           MARKET_CALENDAR_PATH: data/calendars/b3_holidays_2026.csv
 
         run: |
-          python -m scripts.run_daily_iq_job
+          python -m scripts.run_daily_iq_job --notify
