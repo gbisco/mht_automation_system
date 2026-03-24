@@ -151,10 +151,12 @@ def test_calculate_returns_expected_output(processor):
         "Asset",
         "IQ_Current_Date",
         "IQ_Prev_Date",
-        "IQ_call",
-        "IQ_put",
-        "IQ_coef",
-        "IQ_prev",
+        "IQ_call_current",
+        "IQ_call_prev",
+        "IQ_put_current",
+        "IQ_put_prev",
+        "IQ_coef_current",
+        "IQ_coef_prev",
         "Delta_IQ",
         "Pct_change",
     ]
@@ -162,8 +164,12 @@ def test_calculate_returns_expected_output(processor):
     abcb_row = result[result["Asset"] == "ABCB"].iloc[0]
     assert abcb_row["IQ_Current_Date"] == "2026-03-20"
     assert abcb_row["IQ_Prev_Date"] == "2026-03-19"
-    assert abcb_row["IQ_coef"] == pytest.approx(3.244038)
-    assert abcb_row["IQ_prev"] == pytest.approx(2.103929)
+    assert abcb_row["IQ_call_current"] == pytest.approx(0.716216)
+    assert abcb_row["IQ_call_prev"] == pytest.approx(0.5)
+    assert abcb_row["IQ_put_current"] == pytest.approx(0.220779)
+    assert abcb_row["IQ_put_prev"] == pytest.approx(0.2)
+    assert abcb_row["IQ_coef_current"] == pytest.approx(3.244038)
+    assert abcb_row["IQ_coef_prev"] == pytest.approx(2.103929)
     assert abcb_row["Delta_IQ"] == pytest.approx(1.140109)
     assert abcb_row["Pct_change"] == pytest.approx(1.140109 / 2.103929)
 
@@ -193,7 +199,14 @@ def test_calculate_keeps_current_asset_when_previous_missing(processor):
 
     row = result.iloc[0]
     assert row["Asset"] == "ABCB"
-    assert pd.isna(row["IQ_prev"])
+    assert row["IQ_Current_Date"] == "2026-03-20"
+    assert pd.isna(row["IQ_Prev_Date"])
+    assert row["IQ_call_current"] == pytest.approx(0.716216)
+    assert pd.isna(row["IQ_call_prev"])
+    assert row["IQ_put_current"] == pytest.approx(0.220779)
+    assert pd.isna(row["IQ_put_prev"])
+    assert row["IQ_coef_current"] == pytest.approx(3.244038)
+    assert pd.isna(row["IQ_coef_prev"])
     assert pd.isna(row["Delta_IQ"])
     assert pd.isna(row["Pct_change"])
 
