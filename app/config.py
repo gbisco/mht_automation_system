@@ -25,7 +25,6 @@ DEFAULT_REPORT_RECIPIENTS = [
 
 ALERT_RECIPIENTS = [
     "gabrielbisco@novaflowdigi.com",
-    "ricardo.manara@mhtinvest.com.br"
 ]
 
 # =========================
@@ -44,6 +43,7 @@ SHAREPOINT_GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
 SHAREPOINT_B3_RAW_FOLDER = os.getenv("SHAREPOINT_B3_RAW_FOLDER", "test/b3_raw")
 SHAREPOINT_IQ_OUTPUT_FOLDER = os.getenv("SHAREPOINT_IQ_OUTPUT_FOLDER","test/iq_coeff")
 SHAREPOINT_ERROR_LOGS_FOLDER = os.getenv("SHAREPOINT_ERROR_LOGS_FOLDER","logs/errors")
+SHAREPOINT_IQ_DELTA_FOLDER = os.getenv("SHAREPOINT_IQ_DELTA_FOLDER","test/delta_iq")
 
 
 # =========================
