@@ -51,5 +51,5 @@ SHAREPOINT_ERROR_LOGS_FOLDER = os.getenv("SHAREPOINT_ERROR_LOGS_FOLDER","logs/er
 
 MARKET_CALENDAR_PATH = os.getenv(
     "MARKET_CALENDAR_PATH",
-    "data/calendars/b3_market_calendar.csv",
+    "data/calendars/b3_holidays_2026.csv",
 )

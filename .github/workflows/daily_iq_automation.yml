@@ -1,0 +1,46 @@
+name: Daily Automation
+
+on:
+  schedule:
+    - cron: "30 10 * * *"  # 7:30 AM Campinas (UTC-3)
+  workflow_dispatch:
+
+jobs:
+  run-automation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run automation
+        env:
+          EMAIL_TENANT_ID: ${{ secrets.EMAIL_TENANT_ID }}
+          EMAIL_CLIENT_ID: ${{ secrets.EMAIL_CLIENT_ID }}
+          EMAIL_CLIENT_SECRET: ${{ secrets.EMAIL_CLIENT_SECRET }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+
+          SHAREPOINT_TENANT_ID: ${{ secrets.SHAREPOINT_TENANT_ID }}
+          SHAREPOINT_CLIENT_ID: ${{ secrets.SHAREPOINT_CLIENT_ID }}
+          SHAREPOINT_CLIENT_SECRET: ${{ secrets.SHAREPOINT_CLIENT_SECRET }}
+          SHAREPOINT_SITE_ID: ${{ secrets.SHAREPOINT_SITE_ID }}
+          SHAREPOINT_DRIVE_ID: ${{ secrets.SHAREPOINT_DRIVE_ID }}
+
+          SHAREPOINT_B3_RAW_FOLDER: test/b3_raw
+          SHAREPOINT_IQ_OUTPUT_FOLDER: test/iq_coeff
+          SHAREPOINT_ERROR_LOGS_FOLDER: logs/errors
+
+          MARKET_CALENDAR_PATH: data/calendars/b3_automation_calendar_2026.csv
+
+        run: |
+          python -m scripts.run_daily_iq_job

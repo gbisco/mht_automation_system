@@ -7,7 +7,11 @@ venv/
 .env
 
 # Ignore all data
-data/
+data/*
+
+# BUT keep calendars
+!data/calendars/
+!data/calendars/*.csv
 
 # Ignore loggers
 logger/logs/
