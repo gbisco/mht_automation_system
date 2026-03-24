@@ -2,7 +2,7 @@ name: Run Tests
 
 on:
   push:
-    branches: [logger_error_implementation]
+    branches: [main]
 
 jobs:
   test:
