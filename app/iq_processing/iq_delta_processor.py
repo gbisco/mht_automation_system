@@ -123,7 +123,7 @@ class IQDeltaProcessor:
         self.logger.write(f"[{df_name}] Validating required columns")
 
         missing_columns = [
-            column for column in self.REQUIRED_COLUMNS
+            column for column in self.INPUT_REQUIRED_COLUMNS
             if column not in df.columns
         ]
 
