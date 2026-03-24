@@ -213,3 +213,85 @@ def test_file_exists_false(storage: SharePointStorage, monkeypatch):
 def test_file_exists_invalid_path(storage: SharePointStorage):
     with pytest.raises(ValueError):
         storage.file_exists("")
+
+
+# =========================
+# List Files
+# =========================
+
+def test_list_files_returns_latest_first_with_top_n(
+    storage: SharePointStorage,
+    monkeypatch,
+):
+    monkeypatch.setattr(storage, "_get_access_token", Mock(return_value="fake-token"))
+
+    mock_response = Mock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {
+        "value": [
+            {
+                "name": "iq_old.csv",
+                "file": {},
+                "webUrl": "https://example.com/iq_old.csv",
+                "lastModifiedDateTime": "2026-03-20T10:00:00Z",
+            },
+            {
+                "name": "iq_new.csv",
+                "file": {},
+                "webUrl": "https://example.com/iq_new.csv",
+                "lastModifiedDateTime": "2026-03-21T10:00:00Z",
+            },
+            {
+                "name": "iq_mid.csv",
+                "file": {},
+                "webUrl": "https://example.com/iq_mid.csv",
+                "lastModifiedDateTime": "2026-03-20T20:00:00Z",
+            },
+        ]
+    }
+
+    monkeypatch.setattr(
+        "app.storage.sharepoint_storage.requests.get",
+        Mock(return_value=mock_response),
+    )
+
+    result = storage.list_files("test/iq_coeff", top_n=2)
+
+    assert len(result) == 2
+    assert result[0]["name"] == "iq_new.csv"
+    assert result[0]["file_path"] == "test/iq_coeff/iq_new.csv"
+    assert result[1]["name"] == "iq_mid.csv"
+    assert result[1]["file_path"] == "test/iq_coeff/iq_mid.csv"
+
+
+def test_list_files_skips_folders(storage: SharePointStorage, monkeypatch):
+    monkeypatch.setattr(storage, "_get_access_token", Mock(return_value="fake-token"))
+
+    mock_response = Mock()
+    mock_response.raise_for_status.return_value = None
+    mock_response.json.return_value = {
+        "value": [
+            {
+                "name": "subfolder",
+                "folder": {},
+                "lastModifiedDateTime": "2026-03-21T09:00:00Z",
+            },
+            {
+                "name": "iq_file.csv",
+                "file": {},
+                "webUrl": "https://example.com/iq_file.csv",
+                "lastModifiedDateTime": "2026-03-21T10:00:00Z",
+            },
+        ]
+    }
+
+    monkeypatch.setattr(
+        "app.storage.sharepoint_storage.requests.get",
+        Mock(return_value=mock_response),
+    )
+
+    result = storage.list_files("test/iq_coeff")
+
+    assert len(result) == 1
+    assert result[0]["name"] == "iq_file.csv"
+    assert result[0]["file_path"] == "test/iq_coeff/iq_file.csv"

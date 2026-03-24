@@ -321,3 +321,67 @@ class SharePointStorage:
                 level="error",
             )
             raise RuntimeError("Failed to check file existence in SharePoint.") from exc
+        
+    def list_files(
+        self,
+        folder_path: str,
+        top_n: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        List files in a SharePoint folder.
+
+        Args:
+            folder_path (str): Path to folder in SharePoint
+            top_n (int | None): Optional limit of number of files to return (most recent first)
+
+        Returns:
+            list[dict[str, Any]]: List of file metadata sorted by last_modified (descending)
+        """
+        self.logger.write(
+            f"Listing files in SharePoint folder | folder_path={folder_path} | top_n={top_n}"
+        )
+
+        try:
+            endpoint = f"/drives/{self.drive_id}/root:/{folder_path}:/children"
+            url = f"{self.base_url}{endpoint}"
+
+            response = requests.get(url, headers=self._get_headers())
+            response.raise_for_status()
+
+            items = response.json().get("value", [])
+
+            files = []
+            for item in items:
+                # Skip folders
+                if "file" not in item:
+                    continue
+
+                files.append({
+                    "name": item.get("name"),
+                    "file_path": f"{folder_path}/{item.get('name')}",
+                    "web_url": item.get("webUrl"),
+                    "last_modified": item.get("lastModifiedDateTime"),
+                })
+
+            # Sort by last modified (newest first)
+            files.sort(
+                key=lambda x: x.get("last_modified") or "",
+                reverse=True,
+            )
+
+            # Apply optional limit
+            if top_n is not None:
+                files = files[:top_n]
+
+        except Exception as e:
+            self.logger.exception(
+                f"Failed to list files in SharePoint folder | "
+                f"folder_path={folder_path} | error={e}"
+            )
+            raise
+
+        self.logger.write(
+            f"Retrieved {len(files)} files from SharePoint folder | folder_path={folder_path}"
+        )
+
+        return files
