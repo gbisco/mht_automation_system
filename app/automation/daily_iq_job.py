@@ -161,6 +161,11 @@ class DailyIQJob:
             logger.exception(
                 f"Daily IQ job failed | target_date={target_date} | error={e}"
             )
+
+            error_log_storage_result = self._upload_error_log(
+                storage_method=storage_method
+            )
+
             return {
                 "status": "failed",
                 "message": "Daily IQ job failed.",
@@ -173,6 +178,7 @@ class DailyIQJob:
                 "notification_method": notification_method if notify else None,
                 "notification_result": None,
                 "error": str(e),
+                "error_log_storage_result": error_log_storage_result,
             }
 
     # =========================
@@ -659,3 +665,50 @@ class DailyIQJob:
             logger.write("No file_name found in pipeline_result", level="warning")
 
         return file_name
+    
+
+    def _upload_error_log(self, storage_method: str) -> Optional[dict[str, Any]]:
+        """
+        Upload the current error log file to storage.
+
+        Args:
+            storage_method (str): Storage backend to use
+
+        Returns:
+            Optional[dict[str, Any]]: Storage result if uploaded, otherwise None
+        """
+        logger.write(
+            f"Uploading error log | storage_method={storage_method}",
+            level="warning",
+        )
+
+        try:
+            if storage_method != "sharepoint":
+                raise ValueError(f"Unsupported storage_method: {storage_method}")
+
+            storage = SharePointStorage()
+
+            error_log_path = logger.get_error_log_path()
+            if not error_log_path.exists():
+                logger.write("Error log file does not exist. Nothing to upload.", level="warning")
+                return None
+
+            file_name = error_log_path.name
+            file_bytes = error_log_path.read_bytes()
+            file_path = f"{config.SHAREPOINT_ERROR_LOGS_FOLDER}/{file_name}"
+
+            result = storage.upload_file_bytes(
+                file_path=file_path,
+                file_bytes=file_bytes,
+                content_type="text/plain",
+            )
+
+            logger.write(
+                f"Error log uploaded successfully | file_path={file_path}",
+                level="info",
+            )
+            return result
+
+        except Exception as upload_exc:
+            logger.exception(f"Failed to upload error log | error={upload_exc}")
+            return None

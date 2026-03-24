@@ -42,6 +42,7 @@ SHAREPOINT_GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
 
 SHAREPOINT_B3_RAW_FOLDER = os.getenv("SHAREPOINT_B3_RAW_FOLDER", "test/b3_raw")
 SHAREPOINT_IQ_OUTPUT_FOLDER = os.getenv("SHAREPOINT_IQ_OUTPUT_FOLDER","test/iq_coeff")
+SHAREPOINT_ERROR_LOGS_FOLDER = os.getenv("SHAREPOINT_ERROR_LOGS_FOLDER","logs/errors")
 
 
 # =========================

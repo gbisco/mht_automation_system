@@ -214,11 +214,14 @@ def test_execute_returns_failed_when_pipeline_raises(job):
     mock_calendar_service = _mock_calendar_service()
     job.pipeline.run.side_effect = RuntimeError("Pipeline exploded")
 
-    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service):
+    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
+         patch.object(job, "_upload_error_log", return_value={"status": "uploaded"}):
+
         result = job.execute(target_date="2026-03-20")
 
     assert result["status"] == "failed"
     assert "Pipeline exploded" in result["error"]
+    assert result["error_log_storage_result"] == {"status": "uploaded"}
 
 
 def test_execute_returns_failed_when_storage_raises(job):
@@ -229,7 +232,8 @@ def test_execute_returns_failed_when_storage_raises(job):
     job.pipeline.run.return_value = _mock_pipeline_result()
 
     with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
-         patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls:
+         patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls, \
+         patch.object(job, "_upload_error_log", return_value={"status": "uploaded"}):
 
         mock_storage = mock_storage_cls.return_value
         mock_storage.upload_file_bytes.side_effect = RuntimeError("Storage failed")
@@ -238,6 +242,7 @@ def test_execute_returns_failed_when_storage_raises(job):
 
     assert result["status"] == "failed"
     assert "Storage failed" in result["error"]
+    assert result["error_log_storage_result"] == {"status": "uploaded"}
 
 
 def test_execute_returns_failed_when_notification_raises(job):
@@ -249,7 +254,8 @@ def test_execute_returns_failed_when_notification_raises(job):
 
     with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
          patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls, \
-         patch("app.automation.daily_iq_job.EmailSender") as mock_email_cls:
+         patch("app.automation.daily_iq_job.EmailSender") as mock_email_cls, \
+         patch.object(job, "_upload_error_log", return_value={"status": "uploaded"}):
 
         mock_storage = mock_storage_cls.return_value
         mock_storage.upload_file_bytes.side_effect = _mock_storage_side_effect()
@@ -266,6 +272,7 @@ def test_execute_returns_failed_when_notification_raises(job):
 
     assert result["status"] == "failed"
     assert "Email failed" in result["error"]
+    assert result["error_log_storage_result"] == {"status": "uploaded"}
 
 
 def test_resolve_recipients_uses_config_default(job):
