@@ -1,4 +1,7 @@
 from pathlib import Path
+import logging
+import uuid
+
 import pytest
 
 from app.logger.logger import AppLogger
@@ -9,11 +12,40 @@ def logger(tmp_path: Path) -> AppLogger:
     """
     Create logger with isolated temp directory.
     """
-    logger = AppLogger("test.logger")
+    logger_name = f"test.logger.{uuid.uuid4()}"
 
-    # Override paths to avoid writing to real logs/
-    logger.log_file = tmp_path / "app.log"
-    logger.error_log_file = tmp_path / "error.log"
+    logger = AppLogger(logger_name)
+
+    # Remove handlers created during initialization
+    for handler in logger.logger.handlers[:]:
+        logger.logger.removeHandler(handler)
+        handler.close()
+
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    )
+
+    app_log_file = tmp_path / "app.log"
+    error_log_file = tmp_path / "error.log"
+
+    file_handler = logging.FileHandler(app_log_file, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+
+    error_file_handler = logging.FileHandler(error_log_file, encoding="utf-8")
+    error_file_handler.setLevel(logging.ERROR)
+    error_file_handler.setFormatter(formatter)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+
+    logger.logger.addHandler(file_handler)
+    logger.logger.addHandler(error_file_handler)
+    logger.logger.addHandler(console_handler)
+
+    logger.log_file = app_log_file
+    logger.error_log_file = error_log_file
 
     return logger
 
@@ -91,14 +123,14 @@ def test_wipe_clears_both_logs(logger: AppLogger):
 # =========================
 
 def test_get_log_text_returns_empty_if_missing(tmp_path: Path):
-    logger = AppLogger("test.logger")
+    logger = AppLogger(f"test.logger.{uuid.uuid4()}")
     logger.log_file = tmp_path / "missing.log"
 
     assert logger.get_log_text() == ""
 
 
 def test_get_error_log_text_returns_empty_if_missing(tmp_path: Path):
-    logger = AppLogger("test.logger")
+    logger = AppLogger(f"test.logger.{uuid.uuid4()}")
     logger.error_log_file = tmp_path / "missing_error.log"
 
     assert logger.get_error_log_text() == ""
