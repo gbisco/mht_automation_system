@@ -21,7 +21,7 @@ EMAIL_GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
 
 DEFAULT_REPORT_RECIPIENTS = [
     "gbisconovo@gmail.com",
-    "ricardo.manara@mhtinvest.com.br"
+    "ricardo.manara@mhtinvest.com.br",
 ]
 
 ALERT_RECIPIENTS = [
