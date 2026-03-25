@@ -39,8 +39,11 @@ jobs:
           SHAREPOINT_B3_RAW_FOLDER: test/b3_raw
           SHAREPOINT_IQ_OUTPUT_FOLDER: test/iq_coeff
           SHAREPOINT_ERROR_LOGS_FOLDER: logs/errors
+          SHAREPOINT_IQ_DELTA_FOLDER: test/delta_iq
+
 
           MARKET_CALENDAR_PATH: data/calendars/b3_holidays_2026.csv
+
 
         run: |
           python -m scripts.run_daily_iq_job --notify
