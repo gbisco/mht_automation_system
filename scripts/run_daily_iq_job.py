@@ -3,15 +3,11 @@ Daily IQ Job Runner
 
 Purpose:
     - Provide a runnable script for the Daily IQ automation workflow
+    - Execute daily IQ generation and delta calculation through DailyIQJob
     - Default execution to today's date for scheduled runs
     - Allow optional manual overrides through command-line arguments
     - Return process exit codes for automation environments such as GitHub Actions
-
-Usage examples:
-    python scripts/run_daily_iq_job.py
-    python scripts/run_daily_iq_job.py --target-date 2026-03-20
-    python scripts/run_daily_iq_job.py --target-date 2026-03-20 --notify
-"""
+""" 
 from __future__ import annotations
 
 import argparse

@@ -6,6 +6,7 @@ from app.interface.email_sender import EmailSender
 from app.iq_processing.daily_iq_pipeline import DailyIQPipeline
 from app.logger.logger import AppLogger
 from app.storage.sharepoint_storage import SharePointStorage
+from app.iq_processing.daily_delta_pipeline import DailyIQDeltaPipeline
 
 
 logger = AppLogger(__name__)
@@ -30,6 +31,7 @@ class DailyIQJob:
         Initialize Daily IQ job dependencies.
         """
         self.pipeline = DailyIQPipeline()
+        self.delta_pipeline = DailyIQDeltaPipeline()
 
     # =========================
     # Public method
@@ -116,10 +118,59 @@ class DailyIQJob:
                 folder=config.SHAREPOINT_B3_RAW_FOLDER,
             )
 
+            # =========================
+            # Resolve and load previous IQ output
+            # =========================
+            storage = SharePointStorage()
+
+            previous_iq_file_path = self._resolve_previous_iq_file_path(
+                storage=storage,
+                folder_path=config.SHAREPOINT_IQ_OUTPUT_FOLDER,
+                processing_date=processing_date,
+            )
+
+            previous_iq_content = self._load_previous_iq_output(previous_iq_file_path)
+
+            previous_iq_file_name = previous_iq_file_path.rsplit("/", 1)[-1]
+            previous_iq_date = self._extract_iq_date(previous_iq_file_name)
+
+            if not previous_iq_date:
+                raise ValueError(
+                    f"Could not extract previous IQ date from path: {previous_iq_file_path}"
+                )
+
+            # =========================
+            # Execute delta pipeline
+            # =========================
+            current_iq_content = pipeline_result["csv_content"]
+
+            if isinstance(current_iq_content, str):
+                current_iq_bytes = current_iq_content.encode("utf-8")
+            elif isinstance(current_iq_content, bytes):
+                current_iq_bytes = current_iq_content
+            else:
+                raise ValueError("Pipeline csv_content must be str or bytes")
+
+            delta_result = self._execute_delta_pipeline(
+                current_iq_content=current_iq_bytes,
+                previous_iq_content=previous_iq_content,
+            )
+
+            # =========================
+            # Store delta IQ output
+            # =========================
+            delta_storage_result = self._store_output(
+                storage_method=storage_method,
+                file_name=delta_result["file_name"],
+                file_content=delta_result["csv_content"],
+                folder=config.SHAREPOINT_IQ_OUTPUT_FOLDER,
+            )
+
             # Combine results
             storage_result = {
                 "iq_file": iq_storage_result,
                 "raw_b3_file": raw_b3_storage_result,
+                "delta_iq_file": delta_storage_result,
             }
 
             notification_sent = False
@@ -131,8 +182,10 @@ class DailyIQJob:
                     notification_method=notification_method,
                     recipients=resolved_recipients,
                     pipeline_result=pipeline_result,
+                    delta_result=delta_result,
                     target_date=target_date,
                     processing_date=processing_date,
+                    previous_iq_date=previous_iq_date,
                     storage_result=storage_result,
                 )
                 notification_sent = True
@@ -475,14 +528,118 @@ class DailyIQJob:
         )
 
         return storage_result
+    
+    def _execute_delta_pipeline(
+        self,
+        current_iq_content: bytes,
+        previous_iq_content: bytes,
+    ) -> dict[str, str]:
+        """
+        Execute the delta IQ pipeline using current and previous IQ CSV content.
+
+        Both inputs are expected as raw UTF-8 encoded CSV bytes. This method
+        decodes them, runs the delta pipeline, and packages the resulting CSV
+        content together with the generic delta output filename.
+
+        Args:
+            current_iq_content (bytes): Current IQ CSV content as raw bytes.
+            previous_iq_content (bytes): Previous IQ CSV content as raw bytes.
+
+        Raises:
+            ValueError: If either input is not bytes.
+
+        Returns:
+            dict[str, str]: Dictionary containing:
+                - csv_content: Delta CSV content
+                - file_name: Delta output file name
+        """
+        logger.write("Executing delta IQ pipeline")
+
+        try:
+            if not isinstance(current_iq_content, bytes):
+                raise ValueError("current_iq_content must be bytes")
+
+            if not isinstance(previous_iq_content, bytes):
+                raise ValueError("previous_iq_content must be bytes")
+
+            current_csv = current_iq_content.decode("utf-8")
+            previous_csv = previous_iq_content.decode("utf-8")
+
+            delta_csv_content = self.delta_pipeline.run(
+                current_csv=current_csv,
+                previous_csv=previous_csv,
+            )
+
+            delta_result = {
+                "csv_content": delta_csv_content,
+                "file_name": self.delta_pipeline.get_output_filename(),
+            }
+
+        except Exception as e:
+            logger.exception(f"Failed to execute delta IQ pipeline | error={e}")
+            raise
+
+        logger.write(
+            f"Delta IQ pipeline executed successfully | "
+            f"file_name={delta_result['file_name']}"
+        )
+
+        return delta_result
+    
+    def _load_previous_iq_output(
+        self,
+        previous_iq_file_path: str,
+    ) -> bytes:
+        """
+        Load the previous IQ CSV output from SharePoint.
+
+        Args:
+            previous_iq_file_path (str): Full SharePoint file path to previous IQ CSV
+
+        Returns:
+            bytes: Previous IQ CSV file content as raw bytes
+
+        Raises:
+            FileNotFoundError: If the expected previous IQ file does not exist
+        """
+        logger.write(
+            f"Loading previous IQ output from SharePoint | "
+            f"file_path={previous_iq_file_path}"
+        )
+
+        try:
+            storage = SharePointStorage()
+
+            if not storage.file_exists(previous_iq_file_path):
+                raise FileNotFoundError(
+                    f"Previous IQ output not found in SharePoint: {previous_iq_file_path}"
+                )
+
+            previous_iq_bytes = storage.download_file_bytes(previous_iq_file_path)
+
+        except Exception as e:
+            logger.exception(
+                f"Failed to load previous IQ output | "
+                f"file_path={previous_iq_file_path} | error={e}"
+            )
+            raise
+
+        logger.write(
+            f"Previous IQ output loaded successfully | "
+            f"file_path={previous_iq_file_path}"
+        )
+
+        return previous_iq_bytes
 
     def _send_notification(
         self,
         notification_method: str,
         recipients: list[str],
         pipeline_result: dict[str, Any],
+        delta_result: dict[str, Any],
         target_date: str,
         processing_date: str,
+        previous_iq_date: str,
         storage_result: dict[str, Any],
     ) -> dict[str, Any]:
         """
@@ -491,9 +648,11 @@ class DailyIQJob:
         Args:
             notification_method (str): Notification backend to use
             recipients (list[str]): Final recipient list
-            pipeline_result (dict[str, Any]): Output returned by pipeline
+            pipeline_result (dict[str, Any]): Output returned by IQ pipeline
+            delta_result (dict[str, Any]): Output returned by delta pipeline
             target_date (str): Date evaluated for execution
             processing_date (str): Previous trading day actually processed
+            previous_iq_date (str): Previous trading day used for delta comparison
             storage_result (dict[str, Any]): Result returned by storage backend
 
         Returns:
@@ -501,6 +660,9 @@ class DailyIQJob:
         """
         file_name = pipeline_result.get("file_name")
         csv_content = pipeline_result.get("csv_content")
+
+        delta_file_name = delta_result.get("file_name")
+        delta_csv_content = delta_result.get("csv_content")
 
         logger.write(
             f"Sending notification | notification_method={notification_method} | "
@@ -523,7 +685,9 @@ class DailyIQJob:
             body = self._build_notification_body(
                 target_date=target_date,
                 processing_date=processing_date,
+                previous_iq_date=previous_iq_date,
                 pipeline_result=pipeline_result,
+                delta_result=delta_result,
                 storage_result=storage_result,
             )
 
@@ -543,6 +707,19 @@ class DailyIQJob:
             email_sender.add_attachment(
                 file_name=file_name,
                 file_bytes=csv_bytes,
+                content_type="text/csv",
+            )
+
+            if isinstance(delta_csv_content, str):
+                delta_csv_bytes = delta_csv_content.encode("utf-8")
+            elif isinstance(delta_csv_content, bytes):
+                delta_csv_bytes = delta_csv_content
+            else:
+                raise ValueError("Delta pipeline csv_content must be str or bytes")
+
+            email_sender.add_attachment(
+                file_name=delta_file_name,
+                file_bytes=delta_csv_bytes,
                 content_type="text/csv",
             )
 
@@ -606,13 +783,15 @@ class DailyIQJob:
         Returns:
             str
         """
-        return f"IQ Report | processing_date={processing_date}"
+        return f"IQ Report | Delta IQ | processing_date={processing_date}"
 
     def _build_notification_body(
         self,
         target_date: str,
         processing_date: str,
+        previous_iq_date: str,
         pipeline_result: dict[str, Any],
+        delta_result: dict[str, Any],
         storage_result: dict[str, Any],
     ) -> str:
         """
@@ -621,7 +800,9 @@ class DailyIQJob:
         Args:
             target_date (str): Date evaluated for execution
             processing_date (str): Previous trading day actually processed
-            pipeline_result (dict[str, Any]): Output returned by pipeline
+            previous_iq_date (str): Previous trading day used for delta comparison
+            pipeline_result (dict[str, Any]): Output returned by IQ pipeline
+            delta_result (dict[str, Any]): Output returned by delta pipeline
             storage_result (dict[str, Any]): Result returned by storage backend
 
         Returns:
@@ -629,6 +810,10 @@ class DailyIQJob:
         """
         file_name = pipeline_result.get("file_name")
         web_url = storage_result.get("iq_file", {}).get("web_url")
+
+        delta_file_name = delta_result.get("file_name")
+        delta_web_url = storage_result.get("delta_iq_file", {}).get("web_url")
+
         body = f"""
         <html>
             <body>
@@ -636,9 +821,15 @@ class DailyIQJob:
 
                 <p><strong>Target Date:</strong> {target_date}</p>
                 <p><strong>Processing Date:</strong> {processing_date}</p>
-                <p><strong>File Name:</strong> {file_name}</p>
 
-                {f'<p><strong>View File:</strong> <a href="{web_url}">Open in SharePoint</a></p>' if web_url else ''}
+                <p><strong>IQ File:</strong> {file_name}</p>
+                {f'<p><strong>View IQ File:</strong> <a href="{web_url}">Open in SharePoint</a></p>' if web_url else ''}
+
+                <br>
+
+                <p><strong>Delta File:</strong> {delta_file_name}</p>
+                <p><strong>Delta Comparison:</strong> {previous_iq_date} vs {processing_date}</p>
+                {f'<p><strong>View Delta File:</strong> <a href="{delta_web_url}">Open in SharePoint</a></p>' if delta_web_url else ''}
 
                 <br>
 
@@ -712,3 +903,90 @@ class DailyIQJob:
         except Exception as upload_exc:
             logger.exception(f"Failed to upload error log | error={upload_exc}")
             return None
+        
+            
+    def _extract_iq_date(self, filename: str) -> str | None:
+        """
+        Extract IQ date from a dated IQ output file name.
+
+        Expected format:
+            iq_coef_YYYYMMDD.csv
+
+        Args:
+            filename (str): IQ file name
+
+        Returns:
+            str | None: Extracted date in YYYY-MM-DD format, or None if invalid
+        """
+        if not filename.startswith("iq_coef_") or not filename.endswith(".csv"):
+            return None
+
+        raw = filename.replace("iq_coef_", "").replace(".csv", "")
+
+        if len(raw) != 8 or not raw.isdigit():
+            return None
+
+        return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
+
+
+    def _resolve_previous_iq_file_path(
+        self,
+        storage: SharePointStorage,
+        folder_path: str,
+        processing_date: str,
+    ) -> str:
+        """
+        Resolve the latest prior IQ file path in SharePoint based on processing date.
+
+        Args:
+            storage (SharePointStorage): SharePoint storage client
+            folder_path (str): SharePoint folder path containing IQ outputs
+            processing_date (str): Current processing date in YYYY-MM-DD format
+
+        Returns:
+            str: Full SharePoint file path for the latest prior IQ file
+
+        Raises:
+            FileNotFoundError: If no prior IQ file is found
+        """
+        logger.write(
+            f"Resolving previous IQ file path | "
+            f"folder_path={folder_path} | processing_date={processing_date}"
+        )
+
+        files = storage.list_files(folder_path)
+
+        candidates = []
+
+        for file_info in files:
+            name = file_info.get("name")
+            path = file_info.get("file_path")
+
+            if not name or not path:
+                continue
+
+            file_date = self._extract_iq_date(name)
+
+            if not file_date:
+                continue
+
+            if file_date >= processing_date:
+                continue
+
+            candidates.append((file_date, path))
+
+        if not candidates:
+            raise FileNotFoundError(
+                f"No previous IQ file found for processing_date={processing_date}"
+            )
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+
+        previous_file_path = candidates[0][1]
+
+        logger.write(
+            f"Resolved previous IQ file path successfully | "
+            f"processing_date={processing_date} | previous_file_path={previous_file_path}"
+        )
+
+        return previous_file_path
