@@ -2,6 +2,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.storage.sharepoint_storage import SharePointStorage
+import requests
 
 
 # =========================
@@ -82,16 +83,15 @@ def test_get_access_token_success(storage: SharePointStorage, monkeypatch):
 
 
 def test_get_access_token_failure(storage: SharePointStorage, monkeypatch):
-    mock_post = Mock(side_effect=Exception("fail"))
+    mock_post = Mock(side_effect=requests.RequestException("fail"))
 
     monkeypatch.setattr(
         "app.storage.sharepoint_storage.requests.post",
         mock_post,
     )
 
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError):
         storage._get_access_token()
-
 
 # =========================
 # Upload

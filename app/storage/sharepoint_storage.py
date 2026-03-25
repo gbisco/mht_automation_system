@@ -1,5 +1,6 @@
 from typing import Any
 import requests
+import time
 import app.config as config
 from app.logger.logger import AppLogger
 
@@ -95,13 +96,11 @@ class SharePointStorage:
         Raises:
             RuntimeError: if token request fails or access token is missing
         """
-        # Build Microsoft identity platform token URL
         token_url = (
             f"https://login.microsoftonline.com/"
             f"{self.tenant_id}/oauth2/v2.0/token"
         )
 
-        # Build token request payload
         token_data = {
             "client_id": self.client_id,
             "client_secret": self.client_secret,
@@ -109,36 +108,58 @@ class SharePointStorage:
             "grant_type": "client_credentials",
         }
 
-        try:
-            # Request access token
-            response = requests.post(
-                token_url,
-                data=token_data,
-                timeout=30,
-            )
+        max_attempts = 3
+        retry_statuses = {429, 502, 503, 504}
 
-            # Raise for HTTP errors
-            response.raise_for_status()
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.post(
+                    token_url,
+                    data=token_data,
+                    timeout=30,
+                )
 
-            # Parse token response
-            response_json = response.json()
-            access_token = response_json.get("access_token")
+                if response.status_code in retry_statuses and attempt < max_attempts:
+                    delay = 2 ** (attempt - 1)
+                    self.logger.write(
+                        f"Transient error {response.status_code} acquiring token. "
+                        f"Retrying in {delay}s (attempt {attempt}/{max_attempts})",
+                        level="warning",
+                    )
+                    time.sleep(delay)
+                    continue
 
-            if not access_token:
-                raise RuntimeError("Token response did not include an access_token.")
+                response.raise_for_status()
 
-            self.logger.write(
-                "Successfully acquired Microsoft Graph access token for SharePoint.",
-                level="info",
-            )
-            return access_token
+                response_json = response.json()
+                access_token = response_json.get("access_token")
 
-        except requests.RequestException as exc:
-            self.logger.write(
-                f"Failed to acquire Microsoft Graph access token for SharePoint: {exc}",
-                level="error",
-            )
-            raise RuntimeError("Failed to acquire Microsoft Graph access token for SharePoint.") from exc
+                if not access_token:
+                    raise RuntimeError("Token response did not include an access_token.")
+
+                self.logger.write(
+                    "Successfully acquired Microsoft Graph access token for SharePoint.",
+                    level="info",
+                )
+                return access_token
+
+            except requests.RequestException as exc:
+                if attempt == max_attempts:
+                    self.logger.write(
+                        f"Failed to acquire Microsoft Graph access token after {max_attempts} attempts: {exc}",
+                        level="error",
+                    )
+                    raise RuntimeError(
+                        "Failed to acquire Microsoft Graph access token for SharePoint."
+                    ) from exc
+
+                delay = 2 ** (attempt - 1)
+                self.logger.write(
+                    f"Request error acquiring token. Retrying in {delay}s "
+                    f"(attempt {attempt}/{max_attempts}): {exc}",
+                    level="warning",
+                )
+                time.sleep(delay)
 
     def _build_file_url(self, file_path: str) -> str:
         """
@@ -198,36 +219,66 @@ class SharePointStorage:
             "Content-Type": content_type,
         }
 
-        try:
-            response = requests.put(
-                upload_url,
-                headers=headers,
-                data=file_bytes,
-                timeout=30,
-            )
-            response.raise_for_status()
+        max_attempts = 3
+        retry_status_codes = {429, 502, 503, 504}
 
-            response_json = response.json()
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.put(
+                    upload_url,
+                    headers=headers,
+                    data=file_bytes,
+                    timeout=30,
+                )
 
-            self.logger.write(
-                f"Successfully uploaded file to SharePoint: {file_path}",
-                level="info",
-            )
+                if response.status_code in retry_status_codes:
+                    raise requests.HTTPError(
+                        f"{response.status_code} Server Error: transient upload failure",
+                        response=response,
+                    )
 
-            return {
-                "status": "uploaded",
-                "file_path": file_path,
-                "name": response_json.get("name"),
-                "id": response_json.get("id"),
-                "web_url": response_json.get("webUrl"),
-            }
+                response.raise_for_status()
 
-        except requests.RequestException as exc:
-            self.logger.write(
-                f"Failed to upload file to SharePoint: {file_path} | Error: {exc}",
-                level="error",
-            )
-            raise RuntimeError("Failed to upload file to SharePoint.") from exc
+                response_json = response.json()
+
+                self.logger.write(
+                    f"Successfully uploaded file to SharePoint: {file_path}",
+                    level="info",
+                )
+
+                return {
+                    "status": "uploaded",
+                    "file_path": file_path,
+                    "name": response_json.get("name"),
+                    "id": response_json.get("id"),
+                    "web_url": response_json.get("webUrl"),
+                }
+
+            except requests.RequestException as exc:
+                status_code = getattr(exc.response, "status_code", None)
+
+                is_retryable = status_code in retry_status_codes
+
+                if attempt < max_attempts and is_retryable:
+                    wait_seconds = 2 ** (attempt - 1)
+
+                    self.logger.write(
+                        f"Transient SharePoint upload failure | "
+                        f"file_path={file_path} | "
+                        f"status_code={status_code} | "
+                        f"attempt={attempt}/{max_attempts} | "
+                        f"retrying_in={wait_seconds}s",
+                        level="warning",
+                    )
+
+                    time.sleep(wait_seconds)
+                    continue
+
+                self.logger.write(
+                    f"Failed to upload file to SharePoint: {file_path} | Error: {exc}",
+                    level="error",
+                )
+                raise RuntimeError("Failed to upload file to SharePoint.") from exc
 
     def download_file_bytes(self, file_path: str) -> bytes:
         """
@@ -253,31 +304,63 @@ class SharePointStorage:
             "Authorization": f"Bearer {access_token}",
         }
 
-        try:
-            response = requests.get(
-                download_url,
-                headers=headers,
-                timeout=30,
-            )
+        max_attempts = 3
+        retry_status_codes = {429, 502, 503, 504}
 
-            if response.status_code == 404:
-                raise FileNotFoundError(f"File not found in SharePoint: {file_path}")
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.get(
+                    download_url,
+                    headers=headers,
+                    timeout=30,
+                )
 
-            response.raise_for_status()
+                # Do NOT retry file not found
+                if response.status_code == 404:
+                    raise FileNotFoundError(
+                        f"File not found in SharePoint: {file_path}"
+                    )
 
-            self.logger.write(
-                f"Successfully downloaded file from SharePoint: {file_path}",
-                level="info",
-            )
+                # Trigger retry for transient errors
+                if response.status_code in retry_status_codes:
+                    raise requests.HTTPError(
+                        f"{response.status_code} Server Error: transient download failure",
+                        response=response,
+                    )
 
-            return response.content  # raw bytes
+                response.raise_for_status()
 
-        except requests.RequestException as exc:
-            self.logger.write(
-                f"Failed to download file from SharePoint: {file_path} | Error: {exc}",
-                level="error",
-            )
-            raise RuntimeError("Failed to download file from SharePoint.") from exc
+                self.logger.write(
+                    f"Successfully downloaded file from SharePoint: {file_path}",
+                    level="info",
+                )
+
+                return response.content
+
+            except requests.RequestException as exc:
+                status_code = getattr(exc.response, "status_code", None)
+                is_retryable = status_code in retry_status_codes
+
+                if attempt < max_attempts and is_retryable:
+                    wait_seconds = 2 ** (attempt - 1)
+
+                    self.logger.write(
+                        f"Transient SharePoint download failure | "
+                        f"file_path={file_path} | "
+                        f"status_code={status_code} | "
+                        f"attempt={attempt}/{max_attempts} | "
+                        f"retrying_in={wait_seconds}s",
+                        level="warning",
+                    )
+
+                    time.sleep(wait_seconds)
+                    continue
+
+                self.logger.write(
+                    f"Failed to download file from SharePoint: {file_path} | Error: {exc}",
+                    level="error",
+                )
+                raise RuntimeError("Failed to download file from SharePoint.") from exc
 
     def file_exists(self, file_path: str) -> bool:
         """
@@ -322,73 +405,79 @@ class SharePointStorage:
             )
             raise RuntimeError("Failed to check file existence in SharePoint.") from exc
         
-    def list_files(
-        self,
-        folder_path: str,
-        top_n: int | None = None,
-    ) -> list[dict[str, Any]]:
+    def list_files(self, folder_path: str, top: int = 100) -> list[dict]:
         """
-        List files in a SharePoint folder.
+        List files inside a SharePoint folder.
 
         Args:
-            folder_path (str): Path to folder in SharePoint
-            top_n (int | None): Optional limit of number of files to return (most recent first)
+            folder_path (str): folder path inside the document library
+            top (int): max number of items to return
 
         Returns:
-            list[dict[str, Any]]: List of file metadata sorted by last_modified (descending)
+            list[dict]: list of file metadata (name, path, lastModifiedDateTime)
         """
-        self.logger.write(
-            f"Listing files in SharePoint folder | folder_path={folder_path} | top_n={top_n}"
+        access_token = self._get_access_token()
+
+        list_url = (
+            f"{self.graph_base_url}/drives/{self.drive_id}"
+            f"/root:/{folder_path}:/children?$top={top}"
         )
 
-        try:
-            endpoint = f"/drives/{self.drive_id}/root:/{folder_path}:/children"
-            url = f"{self.graph_base_url}{endpoint}"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+        }
 
-            access_token = self._get_access_token()
+        max_attempts = 3
+        retry_statuses = {429, 502, 503, 504}
 
-            headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Accept": "application/json",
-            }
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = requests.get(
+                    list_url,
+                    headers=headers,
+                    timeout=30,
+                )
 
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-
-            items = response.json().get("value", [])
-
-            files = []
-            for item in items:
-                # Skip folders
-                if "file" not in item:
+                if response.status_code in retry_statuses and attempt < max_attempts:
+                    delay = 2 ** (attempt - 1)
+                    self.logger.write(
+                        f"Transient error {response.status_code} listing files. "
+                        f"Retrying in {delay}s (attempt {attempt}/{max_attempts})",
+                        level="warning",
+                    )
+                    time.sleep(delay)
                     continue
 
-                files.append({
-                    "name": item.get("name"),
-                    "file_path": f"{folder_path}/{item.get('name')}",
-                    "web_url": item.get("webUrl"),
-                    "last_modified": item.get("lastModifiedDateTime"),
-                })
+                response.raise_for_status()
+                data = response.json()
 
-            # Sort by last modified (newest first)
-            files.sort(
-                key=lambda x: x.get("last_modified") or "",
-                reverse=True,
-            )
+                items = data.get("value", [])
 
-            # Apply optional limit
-            if top_n is not None:
-                files = files[:top_n]
+                results = []
+                for item in items:
+                    results.append({
+                        "name": item.get("name"),
+                        "file_path": f"{folder_path}/{item.get('name')}",
+                        "last_modified": item.get("lastModifiedDateTime"),
+                    })
 
-        except Exception as e:
-            self.logger.exception(
-                f"Failed to list files in SharePoint folder | "
-                f"folder_path={folder_path} | error={e}"
-            )
-            raise
+                self.logger.write(
+                    f"Listed {len(results)} files from SharePoint folder: {folder_path}",
+                    level="info",
+                )
 
-        self.logger.write(
-            f"Retrieved {len(files)} files from SharePoint folder | folder_path={folder_path}"
-        )
+                return results
 
-        return files
+            except requests.RequestException as exc:
+                if attempt == max_attempts:
+                    raise RuntimeError(
+                        f"Failed to list files from SharePoint after {max_attempts} attempts"
+                    ) from exc
+
+                delay = 2 ** (attempt - 1)
+                self.logger.write(
+                    f"Request error listing files. Retrying in {delay}s "
+                    f"(attempt {attempt}/{max_attempts}): {exc}",
+                    level="warning",
+                )
+                time.sleep(delay)
