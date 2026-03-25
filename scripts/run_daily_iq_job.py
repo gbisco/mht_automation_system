@@ -13,10 +13,11 @@ from __future__ import annotations
 import argparse
 import sys
 from pprint import pprint
-from datetime import datetime
 
 from app.automation.daily_iq_job import DailyIQJob
 from app.logger.logger import AppLogger
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 logger = AppLogger("entrypoints.run_daily_iq_job")
@@ -30,8 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--target-date",
         dest="target_date",
-        default=datetime.today().strftime("%Y-%m-%d"),
-        help="Target date in YYYY-MM-DD format. Defaults to today.",
+        default=datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m-%d"),
+        help="Target date in YYYY-MM-DD format. Defaults to today's date in Brazil time.",
     )
 
     parser.add_argument(
