@@ -1,8 +1,8 @@
 from unittest.mock import Mock
 import pytest
+import requests
 
 from app.storage.sharepoint_storage import SharePointStorage
-import requests
 
 
 # =========================
@@ -92,6 +92,7 @@ def test_get_access_token_failure(storage: SharePointStorage, monkeypatch):
 
     with pytest.raises(RuntimeError):
         storage._get_access_token()
+
 
 # =========================
 # Upload
@@ -219,7 +220,7 @@ def test_file_exists_invalid_path(storage: SharePointStorage):
 # List Files
 # =========================
 
-def test_list_files_returns_latest_first_with_top_n(
+def test_list_files_returns_items_in_response_order(
     storage: SharePointStorage,
     monkeypatch,
 ):
@@ -241,12 +242,6 @@ def test_list_files_returns_latest_first_with_top_n(
                 "webUrl": "https://example.com/iq_new.csv",
                 "lastModifiedDateTime": "2026-03-21T10:00:00Z",
             },
-            {
-                "name": "iq_mid.csv",
-                "file": {},
-                "webUrl": "https://example.com/iq_mid.csv",
-                "lastModifiedDateTime": "2026-03-20T20:00:00Z",
-            },
         ]
     }
 
@@ -255,16 +250,19 @@ def test_list_files_returns_latest_first_with_top_n(
         Mock(return_value=mock_response),
     )
 
-    result = storage.list_files("test/iq_coeff", top_n=2)
+    result = storage.list_files("test/iq_coeff", top=2)
 
     assert len(result) == 2
-    assert result[0]["name"] == "iq_new.csv"
-    assert result[0]["file_path"] == "test/iq_coeff/iq_new.csv"
-    assert result[1]["name"] == "iq_mid.csv"
-    assert result[1]["file_path"] == "test/iq_coeff/iq_mid.csv"
+    assert result[0]["name"] == "iq_old.csv"
+    assert result[0]["file_path"] == "test/iq_coeff/iq_old.csv"
+    assert result[1]["name"] == "iq_new.csv"
+    assert result[1]["file_path"] == "test/iq_coeff/iq_new.csv"
 
 
-def test_list_files_skips_folders(storage: SharePointStorage, monkeypatch):
+def test_list_files_includes_all_items_returned_by_api(
+    storage: SharePointStorage,
+    monkeypatch,
+):
     monkeypatch.setattr(storage, "_get_access_token", Mock(return_value="fake-token"))
 
     mock_response = Mock()
@@ -292,6 +290,8 @@ def test_list_files_skips_folders(storage: SharePointStorage, monkeypatch):
 
     result = storage.list_files("test/iq_coeff")
 
-    assert len(result) == 1
-    assert result[0]["name"] == "iq_file.csv"
-    assert result[0]["file_path"] == "test/iq_coeff/iq_file.csv"
+    assert len(result) == 2
+    assert result[0]["name"] == "subfolder"
+    assert result[0]["file_path"] == "test/iq_coeff/subfolder"
+    assert result[1]["name"] == "iq_file.csv"
+    assert result[1]["file_path"] == "test/iq_coeff/iq_file.csv"
