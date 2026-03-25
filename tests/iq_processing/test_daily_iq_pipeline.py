@@ -1,250 +1,289 @@
+import pandas as pd
+import pandas.testing as pdt
 import pytest
 from unittest.mock import MagicMock, patch
 
-from app.automation.daily_iq_job import DailyIQJob
+from app.iq_processing.daily_iq_pipeline import DailyIQPipeline
 
 
 @pytest.fixture
-def job():
-    """
-    Build a DailyIQJob instance with a mocked pipeline.
-    """
-    job = DailyIQJob()
-    job.pipeline = MagicMock()
-    return job
+def pipeline():
+    return DailyIQPipeline()
 
 
-def _build_mock_calendar_service():
-    """
-    Build a reusable mocked calendar service.
-    """
-    mock_calendar_service = MagicMock()
-    mock_calendar_service.is_trading_day.return_value = True
-    mock_calendar_service.get_target_date.return_value = "2026-03-20"
+# =========================
+# __init__
+# =========================
 
-    mock_previous_day = MagicMock()
-    mock_previous_day.strftime.return_value = "2026-03-19"
-    mock_calendar_service.get_previous_trading_day.return_value = mock_previous_day
+def test_init_builds_dependencies():
+    pipeline = DailyIQPipeline()
 
-    return mock_calendar_service
+    assert pipeline.DEFAULT_FILE_NAME == "DerivativesOpenPositionFile"
+    assert pipeline.logger is not None
+    assert pipeline.fetcher is not None
+    assert pipeline.calculator is not None
 
 
-def _build_mock_pipeline_result():
-    """
-    Build a reusable mocked pipeline result.
-    """
-    return {
-        "csv_content": b"col1,col2\n1,2\n",
-        "file_name": "iq_2026_03_19.csv",
-        "request_date": "2026-03-19",
-        "raw_b3_content": b"raw-b3-file-bytes",
-        "raw_b3_file_name": "DerivativesOpenPositionFile_20260319.csv",
+# =========================
+# _convert_csv_bytes_to_dataframe
+# =========================
+
+def test_convert_csv_bytes_to_dataframe_returns_dataframe(pipeline):
+    content = (
+        b"RptDt;TckrSymb;SgmtNm;OpnIntrst\n"
+        b"2026-03-19;ABCB;EQUITY CALL;100\n"
+        b"2026-03-19;ABEV;EQUITY PUT;200\n"
+    )
+
+    result = pipeline._convert_csv_bytes_to_dataframe(content)
+
+    assert isinstance(result, pd.DataFrame)
+    assert list(result.columns) == ["RptDt", "TckrSymb", "SgmtNm", "OpnIntrst"]
+    assert len(result) == 2
+    assert result.loc[0, "TckrSymb"] == "ABCB"
+    assert result.loc[1, "TckrSymb"] == "ABEV"
+
+
+def test_convert_csv_bytes_to_dataframe_keeps_values_as_strings(pipeline):
+    content = (
+        b"RptDt;TckrSymb;OpnIntrst\n"
+        b"2026-03-19;ABCB;00123\n"
+    )
+
+    result = pipeline._convert_csv_bytes_to_dataframe(content)
+
+    assert result.loc[0, "OpnIntrst"] == "00123"
+    assert isinstance(result.loc[0, "OpnIntrst"], str)
+
+
+def test_convert_csv_bytes_to_dataframe_keeps_empty_values_as_empty_string(pipeline):
+    content = (
+        b"RptDt;TckrSymb;OpnIntrst\n"
+        b"2026-03-19;ABCB;\n"
+    )
+
+    result = pipeline._convert_csv_bytes_to_dataframe(content)
+
+    assert result.loc[0, "OpnIntrst"] == ""
+
+
+# =========================
+# _build_output_filename
+# =========================
+
+def test_build_output_filename_returns_expected_name(pipeline):
+    result = pipeline._build_output_filename("2026-03-19")
+
+    assert result == "iq_coef_20260319.csv"
+
+
+# =========================
+# run
+# =========================
+
+def test_run_returns_expected_result_with_download_name(pipeline):
+    target_date = "2026-03-19"
+    raw_bytes = (
+        b"RptDt;TckrSymb;SgmtNm;OpnIntrst\n"
+        b"2026-03-19;ABCB;EQUITY CALL;100\n"
+    )
+
+    converted_df = pd.DataFrame(
+        {
+            "RptDt": ["2026-03-19"],
+            "TckrSymb": ["ABCB"],
+            "SgmtNm": ["EQUITY CALL"],
+            "OpnIntrst": ["100"],
+        }
+    )
+
+    iq_coef_df = pd.DataFrame(
+        {
+            "Asset": ["ABCB"],
+            "Date": ["2026-03-19"],
+            "IQ_call": [0.7],
+            "IQ_put": [0.2],
+            "IQ_coef": [3.5],
+        }
+    )
+
+    fetch_result = {
+        "content": raw_bytes,
+        "download_name": "DerivativesOpenPositionFile_20260319.csv",
     }
 
+    with patch.object(pipeline.fetcher, "fetch", return_value=fetch_result) as mock_fetch, \
+         patch.object(
+             pipeline,
+             "_convert_csv_bytes_to_dataframe",
+             return_value=converted_df,
+         ) as mock_convert, \
+         patch.object(
+             pipeline.calculator,
+             "calculate_from_dataframe",
+             return_value=iq_coef_df,
+         ) as mock_calculate:
 
-def test_execute_skips_when_target_date_is_not_trading_day(job):
-    """
-    Job should stop cleanly when target date is not a trading day.
-    """
-    mock_calendar_service = MagicMock()
-    mock_calendar_service.is_trading_day.return_value = False
+        result = pipeline.run(target_date)
 
-    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service):
-        result = job.execute(target_date="2026-03-20")
+    mock_fetch.assert_called_once_with(
+        file_name="DerivativesOpenPositionFile",
+        date_str="2026-03-19",
+    )
+    mock_convert.assert_called_once_with(raw_bytes)
+    mock_calculate.assert_called_once_with(converted_df)
 
-    assert result["status"] == "skipped"
-    assert result["target_date"] == "2026-03-20"
-    assert result["processing_date"] is None
-    assert result["notification_sent"] is False
-
-    job.pipeline.run.assert_not_called()
-
-
-def test_execute_success_without_notification(job):
-    """
-    Job should complete successfully without sending notification.
-    """
-    mock_calendar_service = _build_mock_calendar_service()
-    job.pipeline.run.return_value = _build_mock_pipeline_result()
-
-    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
-         patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls:
-
-        mock_storage = mock_storage_cls.return_value
-        mock_storage.upload_file_bytes.side_effect = [
-            {
-                "status": "uploaded",
-                "file_path": "test/iq_coeff/iq_2026_03_19.csv",
-                "name": "iq_2026_03_19.csv",
-                "web_url": "https://sharepoint/iq-file",
-            },
-            {
-                "status": "uploaded",
-                "file_path": "test/b3_raw/DerivativesOpenPositionFile_20260319.csv",
-                "name": "DerivativesOpenPositionFile_20260319.csv",
-                "web_url": "https://sharepoint/raw-file",
-            },
-        ]
-
-        result = job.execute(
-            target_date="2026-03-20",
-            storage_method="sharepoint",
-            notify=False,
-        )
-
-    assert result["status"] == "success"
-    assert result["target_date"] == "2026-03-20"
-    assert result["processing_date"] == "2026-03-19"
-    assert result["file_name"] == "iq_2026_03_19.csv"
-    assert result["notification_sent"] is False
-    assert result["notification_method"] is None
-
-    job.pipeline.run.assert_called_once_with("2026-03-19")
-    assert mock_storage.upload_file_bytes.call_count == 2
+    assert result["csv_content"] == iq_coef_df.to_csv(index=False)
+    assert result["file_name"] == "iq_coef_20260319.csv"
+    assert result["request_date"] == "2026-03-19"
+    assert result["raw_b3_content"] == raw_bytes
+    assert result["raw_b3_file_name"] == "DerivativesOpenPositionFile_20260319.csv"
 
 
-def test_execute_success_with_notification(job):
-    """
-    Job should complete successfully and send notification when requested.
-    """
-    mock_calendar_service = _build_mock_calendar_service()
-    job.pipeline.run.return_value = _build_mock_pipeline_result()
+def test_run_uses_default_raw_b3_file_name_when_download_name_missing(pipeline):
+    target_date = "2026-03-19"
+    raw_bytes = (
+        b"RptDt;TckrSymb;SgmtNm;OpnIntrst\n"
+        b"2026-03-19;ABCB;EQUITY CALL;100\n"
+    )
 
-    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
-         patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls, \
-         patch("app.automation.daily_iq_job.EmailSender") as mock_email_cls:
-
-        mock_storage = mock_storage_cls.return_value
-        mock_storage.upload_file_bytes.side_effect = [
-            {
-                "status": "uploaded",
-                "file_path": "test/iq_coeff/iq_2026_03_19.csv",
-                "name": "iq_2026_03_19.csv",
-                "web_url": "https://sharepoint/iq-file",
-            },
-            {
-                "status": "uploaded",
-                "file_path": "test/b3_raw/DerivativesOpenPositionFile_20260319.csv",
-                "name": "DerivativesOpenPositionFile_20260319.csv",
-                "web_url": "https://sharepoint/raw-file",
-            },
-        ]
-
-        mock_email = mock_email_cls.return_value
-        mock_email.send.return_value = {
-            "status": "sent",
-            "message": "Email sent successfully",
+    converted_df = pd.DataFrame(
+        {
+            "RptDt": ["2026-03-19"],
+            "TckrSymb": ["ABCB"],
+            "SgmtNm": ["EQUITY CALL"],
+            "OpnIntrst": ["100"],
         }
+    )
 
-        result = job.execute(
-            target_date="2026-03-20",
-            storage_method="sharepoint",
-            notify=True,
-            notification_method="email",
-            recipients=["test@example.com"],
-        )
+    iq_coef_df = pd.DataFrame(
+        {
+            "Asset": ["ABCB"],
+            "Date": ["2026-03-19"],
+            "IQ_call": [0.7],
+            "IQ_put": [0.2],
+            "IQ_coef": [3.5],
+        }
+    )
 
-    assert result["status"] == "success"
-    assert result["notification_sent"] is True
-    assert result["notification_method"] == "email"
+    fetch_result = {
+        "content": raw_bytes,
+    }
 
-    assert mock_storage.upload_file_bytes.call_count == 2
-    mock_email.create_email.assert_called_once()
-    mock_email.add_attachment.assert_called_once()
-    mock_email.send.assert_called_once()
+    with patch.object(pipeline.fetcher, "fetch", return_value=fetch_result), \
+         patch.object(
+             pipeline,
+             "_convert_csv_bytes_to_dataframe",
+             return_value=converted_df,
+         ), \
+         patch.object(
+             pipeline.calculator,
+             "calculate_from_dataframe",
+             return_value=iq_coef_df,
+         ):
 
+        result = pipeline.run(target_date)
 
-def test_execute_returns_failed_when_pipeline_raises(job):
-    """
-    Job should return failed status when pipeline raises an exception.
-    """
-    mock_calendar_service = _build_mock_calendar_service()
-    job.pipeline.run.side_effect = RuntimeError("Pipeline exploded")
-
-    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service):
-        result = job.execute(target_date="2026-03-20")
-
-    assert result["status"] == "failed"
-    assert "Pipeline exploded" in result["error"]
-
-
-def test_execute_returns_failed_when_storage_raises(job):
-    """
-    Job should return failed status when storage upload raises an exception.
-    """
-    mock_calendar_service = _build_mock_calendar_service()
-    job.pipeline.run.return_value = _build_mock_pipeline_result()
-
-    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
-         patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls:
-
-        mock_storage = mock_storage_cls.return_value
-        mock_storage.upload_file_bytes.side_effect = RuntimeError("Storage failed")
-
-        result = job.execute(target_date="2026-03-20")
-
-    assert result["status"] == "failed"
-    assert "Storage failed" in result["error"]
+    assert result["raw_b3_file_name"] == "DerivativesOpenPositionFile_2026-03-19.csv"
 
 
-def test_execute_returns_failed_when_notification_raises(job):
-    """
-    Job should return failed status when notification sending raises an exception.
-    """
-    mock_calendar_service = _build_mock_calendar_service()
-    job.pipeline.run.return_value = _build_mock_pipeline_result()
+def test_run_passes_dataframe_from_converter_to_calculator(pipeline):
+    target_date = "2026-03-19"
+    raw_bytes = b"dummy-bytes"
 
-    with patch.object(job, "_build_calendar_service", return_value=mock_calendar_service), \
-         patch("app.automation.daily_iq_job.SharePointStorage") as mock_storage_cls, \
-         patch("app.automation.daily_iq_job.EmailSender") as mock_email_cls:
+    converted_df = pd.DataFrame(
+        {
+            "RptDt": ["2026-03-19"],
+            "TckrSymb": ["ABCB"],
+        }
+    )
 
-        mock_storage = mock_storage_cls.return_value
-        mock_storage.upload_file_bytes.side_effect = [
-            {
-                "status": "uploaded",
-                "file_path": "test/iq_coeff/iq_2026_03_19.csv",
-                "name": "iq_2026_03_19.csv",
-                "web_url": "https://sharepoint/iq-file",
-            },
-            {
-                "status": "uploaded",
-                "file_path": "test/b3_raw/DerivativesOpenPositionFile_20260319.csv",
-                "name": "DerivativesOpenPositionFile_20260319.csv",
-                "web_url": "https://sharepoint/raw-file",
-            },
-        ]
+    iq_coef_df = pd.DataFrame(
+        {
+            "Asset": ["ABCB"],
+            "Date": ["2026-03-19"],
+            "IQ_call": [0.7],
+            "IQ_put": [0.2],
+            "IQ_coef": [3.5],
+        }
+    )
 
-        mock_email = mock_email_cls.return_value
-        mock_email.send.side_effect = RuntimeError("Email failed")
+    with patch.object(
+        pipeline.fetcher,
+        "fetch",
+        return_value={"content": raw_bytes, "download_name": "file.csv"},
+    ), patch.object(
+        pipeline,
+        "_convert_csv_bytes_to_dataframe",
+        return_value=converted_df,
+    ), patch.object(
+        pipeline.calculator,
+        "calculate_from_dataframe",
+        return_value=iq_coef_df,
+    ) as mock_calculate:
 
-        result = job.execute(
-            target_date="2026-03-20",
-            notify=True,
-            notification_method="email",
-            recipients=["test@example.com"],
-        )
+        pipeline.run(target_date)
 
-    assert result["status"] == "failed"
-    assert "Email failed" in result["error"]
+    mock_calculate.assert_called_once_with(converted_df)
 
 
-def test_resolve_recipients_uses_config_default(job):
-    """
-    _resolve_recipients should return config defaults when no override is passed.
-    """
-    with patch(
-        "app.automation.daily_iq_job.config.DEFAULT_REPORT_RECIPIENTS",
-        ["default@example.com"],
+def test_run_returns_csv_from_calculated_dataframe(pipeline):
+    target_date = "2026-03-19"
+    raw_bytes = b"dummy-bytes"
+
+    iq_coef_df = pd.DataFrame(
+        {
+            "Asset": ["ABCB", "ABEV"],
+            "Date": ["2026-03-19", "2026-03-19"],
+            "IQ_call": [0.7, 0.6],
+            "IQ_put": [0.2, 0.9],
+            "IQ_coef": [3.5, 0.666667],
+        }
+    )
+
+    with patch.object(
+        pipeline.fetcher,
+        "fetch",
+        return_value={"content": raw_bytes, "download_name": "file.csv"},
+    ), patch.object(
+        pipeline,
+        "_convert_csv_bytes_to_dataframe",
+        return_value=pd.DataFrame({"dummy": ["value"]}),
+    ), patch.object(
+        pipeline.calculator,
+        "calculate_from_dataframe",
+        return_value=iq_coef_df,
     ):
-        recipients = job._resolve_recipients(None)
 
-    assert recipients == ["default@example.com"]
+        result = pipeline.run(target_date)
+
+    expected_csv = iq_coef_df.to_csv(index=False)
+    assert result["csv_content"] == expected_csv
 
 
-def test_resolve_recipients_uses_passed_recipients(job):
-    """
-    _resolve_recipients should use passed recipients when provided.
-    """
-    recipients = job._resolve_recipients(["custom@example.com"])
+def test_run_propagates_fetch_error(pipeline):
+    with patch.object(
+        pipeline.fetcher,
+        "fetch",
+        side_effect=RuntimeError("fetch failed"),
+    ):
+        with pytest.raises(RuntimeError, match="fetch failed"):
+            pipeline.run("2026-03-19")
 
-    assert recipients == ["custom@example.com"]
+
+def test_run_propagates_calculation_error(pipeline):
+    with patch.object(
+        pipeline.fetcher,
+        "fetch",
+        return_value={"content": b"dummy-bytes", "download_name": "file.csv"},
+    ), patch.object(
+        pipeline,
+        "_convert_csv_bytes_to_dataframe",
+        return_value=pd.DataFrame({"dummy": ["value"]}),
+    ), patch.object(
+        pipeline.calculator,
+        "calculate_from_dataframe",
+        side_effect=RuntimeError("calculation failed"),
+    ):
+        with pytest.raises(RuntimeError, match="calculation failed"):
+            pipeline.run("2026-03-19")
